@@ -34,7 +34,7 @@ function processMUSP(rows) {
     const date      = (r[""] || "").trim().slice(0, 7);
     const treatment = (r["By Treatment"] || "").trim();
     const val       = parseInt(r["1. MUSP (Monthly Unique Scanned Patients)"] || "0") || 0;
-    return (ic && doctor && date && treatment) ? [{ ic, doctor, date, treatment, val }] : [];
+    return (ic && doctor && date && treatment && !BLOCKED_ICS.includes(ic)) ? [{ ic, doctor, date, treatment, val }] : [];
   });
 }
 
@@ -45,19 +45,21 @@ function processPS(rows) {
     const date      = (r[""] || "").trim().slice(0, 7);
     const treatment = (r["By Treatment"] || "").trim();
     const val       = parseInt(r["2. First Scanned Patients"] || "0") || 0;
-    return (doctor && date && treatment) ? [{ ic, doctor, date, treatment, val }] : [];
+    return (doctor && date && treatment && !BLOCKED_ICS.includes(ic)) ? [{ ic, doctor, date, treatment, val }] : [];
   });
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TREATMENTS = ["Aligners", "Braces", "Pre-Treatment", "Post-Treatment", "Others"];
 const TC = { Aligners:"#3b82f6", Braces:"#8b5cf6", "Pre-Treatment":"#06b6d4", "Post-Treatment":"#10b981", Others:"#f59e0b" };
-const C  = { bg:"#020817", surface:"#0c1525", border:"#1a2744", text:"#e2e8f0", muted:"#64748b", accent:"#3b82f6", green:"#10b981", red:"#ef4444", amber:"#f59e0b", purple:"#a78bfa" };
+const BLOCKED_ICS = ["Cory Lawing", "Niki Talma", "Bronie Shvarts", "Bronie"];
+const DARK  = { bg:"#020817", surface:"#0c1525", border:"#1a2744", text:"#e2e8f0", muted:"#64748b", accent:"#3b82f6", green:"#10b981", red:"#ef4444", amber:"#f59e0b", purple:"#a78bfa", psColor:"#10b981" };
+const LIGHT = { bg:"#f0f4fa", surface:"#ffffff", border:"#dde3ef", text:"#0f172a", muted:"#64748b", accent:"#2563eb", green:"#059669", red:"#dc2626", amber:"#d97706", purple:"#7c3aed", psColor:"#059669" };
+let C = DARK; // mutable ref updated before each render
 
 const MODES = {
-  musp: { key:"musp", label:"MUSP",            color:"#3b82f6", unit:"scans" },
-  ps:   { key:"ps",   label:"Patients Start",  color:"#a78bfa", unit:"starts" },
-  conv: { key:"conv", label:"Conversion",      color:"#10b981", unit:"%" },
+  musp: { key:"musp", label:"MUSP",           color:"#3b82f6", unit:"scans" },
+  ps:   { key:"ps",   label:"Patients Start", color:"#10b981", unit:"starts" },
 };
 
 const SIZE_BUCKETS = [
@@ -75,26 +77,37 @@ const STATUS = {
 };
 
 const TT = {
-  contentStyle:{ background:"#0c1525", border:"1px solid #1a2744", borderRadius:8, fontSize:12 },
+  contentStyle:{ background:"var(--tt-bg,#0c1525)", border:"1px solid var(--tt-border,#1a2744)", borderRadius:8, fontSize:12 },
   labelStyle:{ color:"#e2e8f0" }, itemStyle:{ color:"#94a3b8" },
 };
 
-const css = `
+const makeCss = (dark) => `
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#020817}
+body{background:${dark?"#020817":"#f0f4fa"}}
 ::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-track{background:#0c1525}
-::-webkit-scrollbar-thumb{background:#1a2744;border-radius:2px}
-.rh:hover{background:#0c1525!important}
-select option{background:#0c1525}
+::-webkit-scrollbar-track{background:${dark?"#0c1525":"#e2e8f0"}}
+::-webkit-scrollbar-thumb{background:${dark?"#1a2744":"#cbd5e1"};border-radius:2px}
+.rh:hover{background:${dark?"#0c1525":"#f0f4fa"}!important}
+select option{background:${dark?"#0c1525":"#ffffff"}}
 .tipw{position:relative;display:inline-flex;align-items:center;cursor:help}
+.range-thumb::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:16px;height:16px;border-radius:50%;
+  background:#3b82f6;border:2px solid ${dark?"#020817":"#f0f4fa"};
+  cursor:pointer;transition:transform .1s,box-shadow .1s;
+}
+.range-thumb::-webkit-slider-thumb:hover{transform:scale(1.25);box-shadow:0 0 0 4px #3b82f630;}
+.range-thumb::-moz-range-thumb{
+  width:16px;height:16px;border-radius:50%;
+  background:#3b82f6;border:2px solid ${dark?"#020817":"#f0f4fa"};cursor:pointer;
+}
 .tipw .tip{
   display:none;position:fixed;
-  background:#0c1525;border:1px solid #2d4a7a;border-radius:8px;
-  padding:10px 12px;font-size:11px;color:#94a3b8;width:220px;
+  background:${dark?"#0c1525":"#ffffff"};border:1px solid ${dark?"#2d4a7a":"#dde3ef"};border-radius:8px;
+  padding:10px 12px;font-size:11px;color:${dark?"#94a3b8":"#475569"};width:220px;
   z-index:99999;line-height:1.6;pointer-events:none;
-  box-shadow:0 8px 32px #00000088;
+  box-shadow:0 8px 32px #00000033;
 }
 .tipw:hover .tip{display:block}
 `;
@@ -139,17 +152,9 @@ const fmtV = v => v===null||v===undefined ? "–" : v.toLocaleString();
 const gc   = g => g===null ? C.muted : g>=0 ? C.green : C.red;
 const sc   = s => s>=1 ? C.green : s<=-1 ? C.red : C.amber;
 
-// Conversion rate color: purple gradient
-const cc = r => {
-  if (r===null||r===undefined) return C.muted;
-  if (r >= 30) return C.purple;
-  if (r >= 15) return "#7c3aed";
-  return C.muted;
-};
-
 // ─── Build doctor stats — unified for MUSP and PS ─────────────────────────────
 // Returns array of doctor objects with byMonth, byTreatment, slope, total, status
-function buildDoctorStats(rows, months, sizeBucket, sortDir, applySize) {
+function buildDoctorStats(rows, months, sizeBuckets, sortDir, sortKey, applySize) {
   const map = {};
   rows.forEach(r => {
     if (!map[r.doctor]) map[r.doctor] = { doctor:r.doctor, ic:r.ic, byMonth:{}, byTreatment:{}, mbt:{}, total:0 };
@@ -160,17 +165,23 @@ function buildDoctorStats(rows, months, sizeBucket, sortDir, applySize) {
     s.mbt[r.date][r.treatment] = (s.mbt[r.date][r.treatment]||0) + r.val;
     s.total += r.val;
   });
-  const bucket = SIZE_BUCKETS[applySize ? sizeBucket : 0];
+  // Multi-select: pass if avg falls in ANY selected bucket (or no filter)
+  const activeBuckets = applySize && sizeBuckets.length > 0
+    ? sizeBuckets.map(i => SIZE_BUCKETS[i])
+    : [SIZE_BUCKETS[0]]; // "All"
   return Object.values(map).map(s => {
     const vals   = months.map(m => s.byMonth[m]||0);
     const slope  = calcSlope(s.byMonth, months);
     const total  = totalOver(s.byMonth, months);
-    const avg    = avgOver(s.byMonth, months);    // only used for MUSP size filtering
+    const avg    = avgOver(s.byMonth, months);
     const growth = cagr(s.byMonth, months);
     return { ...s, vals, slope, total, avg, growth, status:perfStatus(slope) };
   })
-  .filter(d => d.avg >= bucket.min && d.avg <= bucket.max)
-  .sort((a,b) => sortDir==="asc" ? a.slope-b.slope : b.slope-a.slope);
+  .filter(d => activeBuckets.some(b => d.avg >= b.min && d.avg <= b.max))
+  .sort((a,b) => {
+    const key = sortKey === "total" ? "total" : "slope";
+    return sortDir==="asc" ? a[key]-b[key] : b[key]-a[key];
+  });
 }
 
 // Build full-history slopes from raw data (all months, no filters)
@@ -263,40 +274,47 @@ const Tag = ({ status }) => {
   );
 };
 
-const Spark = ({ vals, color }) => {
-  const max = Math.max(...(vals||[]), 1);
+const SparkLine = ({ vals, color }) => {
+  const n = (vals||[]).length;
+  if (n < 2) return null;
+  const max = Math.max(...vals, 1);
+  const min = Math.min(...vals, 0);
+  const range = max - min || 1;
+  const h = 22, w = 100, pad = 2; // pad prevents clipping at edges
+  const pts = vals.map((v,i) => `${pad + (i/(n-1))*(w-pad*2)},${pad + (h-pad*2) - ((v-min)/range)*(h-pad*2)}`).join(" ");
   return (
-    <div style={{ display:"flex", gap:2, alignItems:"flex-end", height:14 }}>
-      {(vals||[]).map((v,i) => (
-        <div key={i} style={{ flex:1, height:Math.max(2,(v/max)*14), background:color, borderRadius:"1px 1px 0 0", opacity:.8 }}/>
-      ))}
-    </div>
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display:"block", marginTop:4 }}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" opacity={0.85}/>
+    </svg>
   );
 };
 
-const ModeSwitch = ({ mode, setMode, hasPS }) => (
-  <div style={{ display:"flex", background:C.surface, border:"1px solid "+C.border, borderRadius:10, padding:3, gap:2 }}>
-    {Object.values(MODES).filter(m => m.key !== "conv" || hasPS).map(m => (
-      <button key={m.key} onClick={() => setMode(m.key)}
-        style={{ padding:"5px 16px", borderRadius:7, border:"none", background:mode===m.key?m.color+"20":"transparent", color:mode===m.key?m.color:C.muted, fontSize:12, fontWeight:mode===m.key?700:400, cursor:"pointer", transition:"all .15s", fontFamily:"inherit" }}>
-        {m.label}
-      </button>
-    ))}
+const ModeSwitch = ({ mode, setMode, hasPS, darkMode, setDarkMode }) => (
+  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+    <div style={{ display:"flex", background:C.surface, border:"1px solid "+C.border, borderRadius:10, padding:3, gap:2 }}>
+      {Object.values(MODES).filter(m => m.key !== "ps" || hasPS).map(m => (
+        <button key={m.key} onClick={() => setMode(m.key)}
+          style={{ padding:"5px 16px", borderRadius:7, border:"none", background:mode===m.key?m.color+"20":"transparent", color:mode===m.key?m.color:C.muted, fontSize:12, fontWeight:mode===m.key?700:400, cursor:"pointer", transition:"all .15s", fontFamily:"inherit" }}>
+          {m.label}
+        </button>
+      ))}
+    </div>
+    <button onClick={()=>setDarkMode(!darkMode)}
+      title={darkMode?"Switch to light mode":"Switch to dark mode"}
+      style={{ background:C.surface, border:"1px solid "+C.border, borderRadius:8, padding:"5px 9px", cursor:"pointer", fontSize:14, lineHeight:1, transition:"all .15s" }}>
+      {darkMode ? "☀️" : "🌙"}
+    </button>
   </div>
 );
 
 // ─── Doctor list item ─────────────────────────────────────────────────────────
 const DocListItem = ({ d, mode, modeColor, isSelected, onClick, activeMonths }) => {
   const s = STATUS[d.status];
-  const metricLabel = mode==="conv"
-    ? (d.convRate!==null ? d.convRate.toFixed(0)+"%" : "–")
-    : fmtV(d.total);
-  const slopeLabel  = mode==="conv"
-    ? fmt(d.slope,1)+" pp/mo"
-    : fmt(d.slope,1)+"/mo";
+  const metricLabel = fmtV(d.total);
+  const slopeLabel  = fmt(d.slope,1)+"/mo";
   return (
     <div className="rh" onClick={onClick}
-      style={{ padding:"9px 12px", borderBottom:"1px solid "+C.border, cursor:"pointer", background:isSelected?"#1a2744":"transparent", borderLeft:"3px solid "+(isSelected?s.color:"transparent"), transition:"all .1s" }}>
+      style={{ padding:"9px 12px", borderBottom:"1px solid "+C.border, cursor:"pointer", background:isSelected?C.border:"transparent", borderLeft:"3px solid "+(isSelected?s.color:"transparent"), transition:"all .1s" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:5 }}>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:12, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.doctor}</div>
@@ -307,13 +325,15 @@ const DocListItem = ({ d, mode, modeColor, isSelected, onClick, activeMonths }) 
           <div style={{ fontSize:10, color:C.muted }}>{metricLabel}</div>
         </div>
       </div>
-      <Spark vals={d.vals} color={s.color}/>
+      <SparkLine vals={d.vals} color={s.color}/>
     </div>
   );
 };
 
 // ─── Doctor detail — adapts to mode ───────────────────────────────────────────
 function DocDetail({ selDoc, doctorStats, allDoctorStats, activeMonths, allMonths, fullSlopes, mode, muspData, psData }) {
+  const [localTreatF, setLocalTreatF] = useState("All"); // resets on remount (new doctor)
+
   const d = doctorStats.find(x=>x.doctor===selDoc) || allDoctorStats.find(x=>x.doctor===selDoc);
   if (!d) return <div style={{ padding:24, color:C.muted, fontSize:13 }}>Not visible with current filters.</div>;
 
@@ -325,59 +345,46 @@ function DocDetail({ selDoc, doctorStats, allDoctorStats, activeMonths, allMonth
   const showDivergence = slopeDiff!==null && Math.abs(slopeDiff)>=1.5;
   const divDown = slopeDiff<=(-1.5);
 
-  // Chart data
-  let lineData, chartLines;
-  if (mode === "conv") {
-    lineData = activeMonths.map(m => ({
-      month:fmtM(m),
-      "Conv %": d.byMonth[m]||0,
-      MUSP: d.muspByMonth[m]||0,
-      "Pat. Start": d.psByMonth[m]||0,
-    }));
-    chartLines = [
-      { key:"Conv %",     color:C.green,  width:2.5, dashed:false },
-      { key:"MUSP",       color:C.accent, width:1.5, dashed:true },
-      { key:"Pat. Start", color:C.purple, width:1.5, dashed:true },
-    ];
-  } else {
-    lineData = activeMonths.map(m => {
-      const row = { month:fmtM(m), Total:d.byMonth[m]||0 };
-      TREATMENTS.forEach(t => { row[t] = d.mbt&&d.mbt[m] ? (d.mbt[m][t]||0) : 0; });
-      return row;
-    });
-    chartLines = [
-      { key:"Total", color:modeInfo.color, width:2.5, dashed:false },
-      ...TREATMENTS.filter(t => (d.byTreatment[t]||0)>0).map(t => ({ key:t, color:TC[t], width:1.5, dashed:true })),
-    ];
-  }
+  // Months filtered by local treatment selection
+  const filteredMonths = activeMonths; // period unchanged, only chart lines filtered
 
-  // KPI strip
-  const kpis = mode==="conv" ? [
-    { label:"Conv slope",    value:fmt(d.slope,1)+" pp/mo",              color:sc(d.slope),   tip:"Change in conversion rate per month (percentage points)." },
-    { label:"Overall conv",  value:d.convRate!==null?d.convRate.toFixed(1)+"%":"–", color:cc(d.convRate), tip:"Total PS / Total MUSP over the period." },
-    { label:"Total MUSP",    value:fmtV(d.totalMusp),                   color:C.accent,      tip:"Total MUSP scans in the period." },
-    { label:"Total PS",      value:fmtV(d.totalPs),                     color:C.purple,      tip:"Total Patients Start in the period." },
-  ] : [
-    { label:"Slope",   value:fmt(d.slope,1)+"/mo",  color:sc(d.slope),   tip:"Linear regression slope on raw monthly values. >=+1 = Growing." },
-    { label:"Growth",  value:fmt(d.growth,1)+"%",   color:gc(d.growth),  tip:"Compound monthly growth rate (first to last month)." },
-    { label:"Total",   value:fmtV(d.total),         color:modeInfo.color,tip:"Total "+modeInfo.label+" over the selected period." },
+  // Chart data — when a treatment is selected, show only that treatment line + Total
+  const lineData = filteredMonths.map(m => {
+    const row = { month:fmtM(m), Total:d.byMonth[m]||0 };
+    TREATMENTS.forEach(t => { row[t] = d.mbt&&d.mbt[m] ? (d.mbt[m][t]||0) : 0; });
+    return row;
+  });
+  const chartLines = localTreatF === "All"
+    ? [
+        { key:"Total", color:modeInfo.color, width:2.5, dashed:false },
+        ...TREATMENTS.filter(t => (d.byTreatment[t]||0)>0).map(t => ({ key:t, color:TC[t], width:1.5, dashed:true })),
+      ]
+    : [
+        { key:"Total", color:modeInfo.color, width:2, dashed:true },
+        { key:localTreatF, color:TC[localTreatF], width:2.5, dashed:false },
+      ];
+
+  // KPIs — adapt to local filter
+  const kpiByMonth = localTreatF === "All"
+    ? d.byMonth
+    : Object.fromEntries(activeMonths.map(m => [m, d.mbt&&d.mbt[m]?(d.mbt[m][localTreatF]||0):0]));
+  const kpiSlope  = calcSlope(kpiByMonth, activeMonths);
+  const kpiTotal  = totalOver(kpiByMonth, activeMonths);
+  const kpiGrowth = cagr(kpiByMonth, activeMonths);
+  const kpis = [
+    { label:"Slope",   value:fmt(kpiSlope,1)+"/mo",  color:sc(kpiSlope),   tip:"Linear regression slope on raw monthly values. >=+1 = Growing." },
+    { label:"Growth",  value:fmt(kpiGrowth,1)+"%",   color:gc(kpiGrowth),  tip:"Compound monthly growth rate (first to last month)." },
+    { label:localTreatF==="All"?"Total":localTreatF, value:fmtV(kpiTotal), color:localTreatF==="All"?modeInfo.color:TC[localTreatF], tip:"Total "+modeInfo.label+(localTreatF!=="All"?" · "+localTreatF:"")+" over the selected period." },
   ];
 
-  // Treatment table
+  // Treatment table — sorted by volume descending
   const treatRows = TREATMENTS.map(t => {
-    if (mode==="conv") {
-      const mu=d.muspByTreatment[t]||0, ps=d.psByTreatment[t]||0;
-      const rate=mu>0?(ps/mu*100):null;
-      if (mu===0&&ps===0) return null;
-      return { t, primary:rate!==null?rate.toFixed(0)+"%":"–", secondary:mu+" MUSP / "+ps+" PS", color:cc(rate), bg:TC[t] };
-    } else {
-      const v = d.byTreatment[t]||0;
-      if (v===0) return null;
-      const tByM={};
-      activeMonths.forEach(m => { tByM[m]=d.mbt&&d.mbt[m]?(d.mbt[m][t]||0):0; });
-      const tSl=calcSlope(tByM,activeMonths);
-      return { t, primary:fmtV(v), secondary:fmt(tSl,1)+"/mo", color:sc(tSl), bg:TC[t], total:v };
-    }
+    const v = d.byTreatment[t]||0;
+    if (v===0) return null;
+    const tByM={};
+    activeMonths.forEach(m => { tByM[m]=d.mbt&&d.mbt[m]?(d.mbt[m][t]||0):0; });
+    const tSl=calcSlope(tByM,activeMonths);
+    return { t, primary:fmtV(v), secondary:fmt(tSl,1)+"/mo", color:sc(tSl), bg:TC[t], total:v };
   }).filter(Boolean);
 
   const maxTreat = Math.max(...treatRows.map(r=>parseFloat(r.primary)||0), 1);
@@ -409,7 +416,7 @@ function DocDetail({ selDoc, doctorStats, allDoctorStats, activeMonths, allMonth
           </div>
           <Tag status={d.status}/>
         </div>
-        <div style={{ display:"flex", background:"#020817", borderRadius:10, border:"1px solid "+C.border }}>
+        <div style={{ display:"flex", background:C.bg, borderRadius:10, border:"1px solid "+C.border }}>
           {kpis.map(({ label, value, color, tip }, i, a) => (
             <div key={label} style={{ flex:1, padding:"10px 14px", borderRight:i<a.length-1?"1px solid "+C.border:"none" }}>
               <Tip text={tip}>
@@ -426,8 +433,8 @@ function DocDetail({ selDoc, doctorStats, allDoctorStats, activeMonths, allMonth
         <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:14, fontWeight:600 }}>
           {fmtM(activeMonths[0])} to {fmtM(activeMonths[activeMonths.length-1])}
         </div>
-        <ResponsiveContainer width="100%" height={190}>
-          <LineChart data={lineData} margin={{top:0,right:0,left:-10,bottom:0}}>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={lineData} margin={{top:10,right:20,left:-10,bottom:0}}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
             <XAxis dataKey="month" tick={{fill:C.muted,fontSize:10}} axisLine={false} tickLine={false}/>
             <YAxis tick={{fill:C.muted,fontSize:10}} axisLine={false} tickLine={false}/>
@@ -444,67 +451,61 @@ function DocDetail({ selDoc, doctorStats, allDoctorStats, activeMonths, allMonth
       {/* Treatment breakdown + monthly table */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
         <div style={{ background:C.surface, border:"1px solid "+C.border, borderRadius:12, padding:20 }}>
-          <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:14, fontWeight:600 }}>
-            {mode==="conv"?"Conversion by Treatment":"By Treatment"}
+          <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:14, fontWeight:600, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <span>By Treatment <span style={{ fontWeight:400, opacity:.6 }}>· click to isolate</span></span>
+            {localTreatF!=="All" && (
+              <button onClick={()=>setLocalTreatF("All")}
+                style={{ fontSize:9, color:C.muted, background:"transparent", border:"1px solid "+C.border, borderRadius:4, padding:"2px 7px", cursor:"pointer", fontFamily:"inherit" }}>
+                ✕ All
+              </button>
+            )}
           </div>
-          {treatRows.sort((a,b)=>(parseFloat(b.primary)||0)-(parseFloat(a.primary)||0)).map(r => (
-            <div key={r.t} style={{ marginBottom:12 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  <div style={{ width:7, height:7, borderRadius:"50%", background:r.bg }}/>
-                  <span style={{ fontSize:12 }}>{r.t}</span>
+          {treatRows.sort((a,b)=>(b.total||0)-(a.total||0)).map(r => {
+            const isActive = localTreatF === r.t;
+            const isDimmed = localTreatF !== "All" && !isActive;
+            return (
+              <div key={r.t} className="rh" onClick={()=>setLocalTreatF(isActive ? "All" : r.t)}
+                style={{ marginBottom:10, padding:"8px 10px", borderRadius:8, cursor:"pointer", background:isActive?r.bg+"25":"transparent", border:"1px solid "+(isActive?r.bg+"80":C.border), transition:"all .15s", opacity:isDimmed?0.4:1 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <div style={{ width:7, height:7, borderRadius:"50%", background:r.bg }}/>
+                    <span style={{ fontSize:12, color:isActive?r.bg:C.text, fontWeight:isActive?600:400 }}>{r.t}</span>
+                  </div>
+                  <div style={{ fontFamily:"DM Mono,monospace" }}>
+                    <span style={{ fontSize:13, fontWeight:700, color:r.color }}>{r.primary}</span>
+                    <span style={{ fontSize:10, color:C.muted, marginLeft:8 }}>{r.secondary}</span>
+                  </div>
                 </div>
-                <div style={{ fontFamily:"DM Mono,monospace" }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:r.color }}>{r.primary}</span>
-                  <span style={{ fontSize:10, color:C.muted, marginLeft:8 }}>{r.secondary}</span>
-                </div>
-              </div>
-              {mode!=="conv" && r.total && (
                 <div style={{ height:3, background:C.border, borderRadius:2 }}>
                   <div style={{ height:"100%", width:Math.min(100,(r.total/Math.max(...treatRows.map(x=>x.total||0),1))*100)+"%", background:r.bg, borderRadius:2 }}/>
                 </div>
-              )}
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
 
         <div style={{ background:C.surface, border:"1px solid "+C.border, borderRadius:12, padding:20 }}>
-          <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:10, fontWeight:600 }}>Monthly detail</div>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+          <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:10, fontWeight:600 }}>
+            Monthly detail{localTreatF!=="All" && <span style={{ color:TC[localTreatF], marginLeft:6 }}>· {localTreatF}</span>}
+          </div>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
             <thead>
               <tr>
                 <th style={{ textAlign:"left", color:C.muted, fontWeight:600, fontSize:10, paddingBottom:6 }}>Month</th>
-                {mode==="conv" ? <>
-                  <th style={{ textAlign:"right", color:C.muted, fontWeight:600, fontSize:10, paddingBottom:6 }}>MUSP</th>
-                  <th style={{ textAlign:"right", color:C.purple, fontWeight:600, fontSize:10, paddingBottom:6 }}>PS</th>
-                  <th style={{ textAlign:"right", color:C.green, fontWeight:600, fontSize:10, paddingBottom:6 }}>Conv%</th>
-                </> : <>
-                  <th style={{ textAlign:"right", color:C.muted, fontWeight:600, fontSize:10, paddingBottom:6 }}>Value</th>
-                  <th style={{ textAlign:"right", color:C.muted, fontWeight:600, fontSize:10, paddingBottom:6 }}>MoM</th>
-                </>}
+                <th style={{ textAlign:"right", color:C.muted, fontWeight:600, fontSize:10, paddingBottom:6 }}>Value</th>
+                <th style={{ textAlign:"right", color:C.muted, fontWeight:600, fontSize:10, paddingBottom:6 }}>MoM</th>
               </tr>
             </thead>
             <tbody>
               {activeMonths.map((m, mi) => {
-                if (mode==="conv") {
-                  const mu=d.muspByMonth[m]||0, ps=d.psByMonth[m]||0;
-                  const cr=mu>0?(ps/mu*100):null;
-                  return (
-                    <tr key={m} style={{ borderTop:"1px solid "+C.border }}>
-                      <td style={{ padding:"5px 0", color:C.text }}>{fmtM(m)}</td>
-                      <td style={{ padding:"5px 0", textAlign:"right", fontFamily:"DM Mono,monospace", color:C.accent }}>{mu}</td>
-                      <td style={{ padding:"5px 0", textAlign:"right", fontFamily:"DM Mono,monospace", color:C.purple }}>{ps}</td>
-                      <td style={{ padding:"5px 0", textAlign:"right", fontFamily:"DM Mono,monospace", color:cc(cr) }}>{cr===null?"–":cr.toFixed(0)+"%"}</td>
-                    </tr>
-                  );
-                }
-                const v    = d.byMonth[m]||0;
-                const prev = mi>0 ? (d.byMonth[activeMonths[mi-1]]||0) : null;
-                const mom  = prev!==null && prev>0 ? ((v-prev)/prev*100) : null;
+                const v    = localTreatF==="All" ? (d.byMonth[m]||0) : (d.mbt&&d.mbt[m]?(d.mbt[m][localTreatF]||0):0);
+                const vPrev= mi>0 ? (localTreatF==="All" ? (d.byMonth[activeMonths[mi-1]]||0) : (d.mbt&&d.mbt[activeMonths[mi-1]]?(d.mbt[activeMonths[mi-1]][localTreatF]||0):0)) : null;
+                const mom  = vPrev!==null && vPrev>0 ? ((v-vPrev)/vPrev*100) : null;
+                const lineColor = localTreatF==="All" ? modeInfo.color : TC[localTreatF];
                 return (
                   <tr key={m} style={{ borderTop:"1px solid "+C.border }}>
                     <td style={{ padding:"5px 0", color:C.text }}>{fmtM(m)}</td>
-                    <td style={{ padding:"5px 0", textAlign:"right", fontFamily:"DM Mono,monospace", color:modeInfo.color }}>{v}</td>
+                    <td style={{ padding:"5px 0", textAlign:"right", fontFamily:"DM Mono,monospace", color:lineColor }}>{v.toLocaleString()}</td>
                     <td style={{ padding:"5px 0", textAlign:"right", fontFamily:"DM Mono,monospace", fontSize:10, color:mom===null?C.muted:mom>=0?C.green:C.red }}>
                       {mom===null?"–":(mom>0?"+":"")+mom.toFixed(0)+"%"}
                     </td>
@@ -529,27 +530,7 @@ function buildRecs(doctorStats, icStats, activeMonths, allMonths, selIC, treatF,
     const name = d.doctor.split(" ").slice(0,2).join(" ");
     const fullSl = fullSlopes?.[d.doctor]??null;
     const candidates = [];
-
-    if (mode==="conv") {
-      // Conversion-specific signals
-      if (d.convRate!==null && d.convRate < 10 && d.totalMusp >= 20) {
-        candidates.push({ type:"warning", priority:d.totalMusp*1.5,
-          title:name+" — low conversion",
-          body:"Overall conv rate "+d.convRate.toFixed(0)+"% on "+d.totalMusp+" MUSP. Scan volume exists but not converting to starts. IC: "+d.ic.split(" ")[0]+"."+ctx });
-      }
-      if (d.slope >= 1 && d.convRate!==null && d.convRate >= 20) {
-        candidates.push({ type:"success", priority:d.slope*d.totalMusp,
-          title:name+" — conversion improving",
-          body:"Conv slope +"+fmt(d.slope,1)+" pp/mo. Rate "+d.convRate.toFixed(0)+"%. Getting more starts from existing pipeline. IC: "+d.ic.split(" ")[0]+"."+ctx });
-      }
-      if (d.slope <= -1.5 && d.convRate!==null && d.convRate < 20) {
-        candidates.push({ type:"alert", priority:Math.abs(d.slope)*d.totalMusp,
-          title:name+" — conversion declining",
-          body:"Conv slope "+fmt(d.slope,1)+" pp/mo. Rate dropping to "+d.convRate.toFixed(0)+"%. Investigate treatment mix or follow-up process. IC: "+d.ic.split(" ")[0]+"."+ctx });
-      }
-    } else {
-      // MUSP or PS signals
-      const unit = mode==="musp"?"MUSP":"PS";
+    const unit = mode==="musp"?"MUSP":"PS";
 
       // Period vs history divergence
       if (fullSl!==null && allMonths.length>activeMonths.length) {
@@ -600,7 +581,6 @@ function buildRecs(doctorStats, icStats, activeMonths, allMonths, selIC, treatF,
             body:t+": slope "+fmt(tSl,1)+" "+unit+"/mo. Total "+tTotal+" over "+n+" months. IC: "+d.ic.split(" ")[0]+"." });
         });
       }
-    }
 
     if (candidates.length>0) {
       candidates.sort((a,b)=>b.priority-a.priority);
@@ -650,67 +630,167 @@ function UploadZone({ id, label, sublabel, onFile, loaded, color }) {
   );
 }
 
-function UploadScreen({ onMUSP, onPS, muspLoaded, psLoaded, canStart, onStart }) {
+function UploadScreen({ onMUSP, onPS, muspLoaded, psLoaded, canStart, onStart, darkMode, setDarkMode }) {
+  C = darkMode ? DARK : LIGHT;
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"DM Sans,sans-serif", color:C.text }}>
-      <style>{css}</style>
+      <style>{makeCss(darkMode)}</style>
+      {/* Dark/light toggle top-right */}
+      <button onClick={()=>setDarkMode(!darkMode)}
+        style={{ position:"fixed", top:16, right:20, background:C.surface, border:"1px solid "+C.border, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:16, lineHeight:1 }}>
+        {darkMode ? "☀️" : "🌙"}
+      </button>
       <div style={{ textAlign:"center", marginBottom:40 }}>
         <div style={{ fontSize:10, letterSpacing:4, color:C.accent, textTransform:"uppercase", marginBottom:14, fontWeight:600 }}>Performance Dashboard</div>
         <h1 style={{ fontSize:36, fontWeight:700, letterSpacing:-1.5, lineHeight:1.15 }}>
-          MUSP <span style={{ color:C.muted, fontWeight:300 }}>+</span> <span style={{ color:C.purple }}>Patients Start</span>
+          MUSP <span style={{ color:C.muted, fontWeight:300 }}>+</span> <span style={{ color:C.green }}>Patients Start</span>
         </h1>
         <p style={{ color:C.muted, marginTop:10, fontSize:13 }}>Upload your exports. Patients Start is optional.</p>
       </div>
       <div style={{ display:"flex", gap:14, width:"100%", maxWidth:520, marginBottom:20 }}>
         <UploadZone id="fi-musp" label="MUSP" sublabel="Required" onFile={onMUSP} loaded={muspLoaded} color={C.accent}/>
-        <UploadZone id="fi-ps" label="Patients Start" sublabel="Optional" onFile={onPS} loaded={psLoaded} color={C.purple}/>
+        <UploadZone id="fi-ps" label="Patients Start" sublabel="Optional" onFile={onPS} loaded={psLoaded} color={C.green}/>
       </div>
       <button onClick={onStart} disabled={!canStart}
-        style={{ background:canStart?C.accent:"#1a2744", color:canStart?"#020817":C.muted, border:"none", borderRadius:10, padding:"12px 36px", fontSize:14, fontWeight:700, cursor:canStart?"pointer":"default", transition:"all .2s" }}>
+        style={{ background:canStart?C.accent:C.border, color:canStart?C.bg:C.muted, border:"none", borderRadius:10, padding:"12px 36px", fontSize:14, fontWeight:700, cursor:canStart?"pointer":"default", transition:"all .2s" }}>
         {canStart?"Launch Dashboard  →":"Upload MUSP to continue"}
       </button>
+      {/* Footer */}
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, borderTop:"1px solid "+C.border, padding:"10px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", background:C.bg }}>
+        <span style={{ fontSize:11, color:C.muted }}>v2.1.0</span>
+        <span style={{ fontSize:11, color:C.muted }}>Made with 🤙 by Antoine Heritier</span>
+      </div>
     </div>
   );
 }
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
+// ─── Period Slider — custom drag-based, no overlapping inputs ────────────────
+function PeriodSlider({ allMonths, safeStart, safeEnd, setStartIdx, setEndIdx, darkMode }) {
+  const [ref, setRef] = useState(null);
+  const dragging = useState(null); // "start" | "end" | null
+  const [drag, setDrag] = dragging;
+  const n = allMonths.length;
+
+  const posToIdx = useCallback((clientX) => {
+    if (!ref) return 0;
+    const rect = ref.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.round(ratio * (n - 1));
+  }, [ref, n]);
+
+  const onMouseDown = useCallback((e, thumb) => {
+    e.preventDefault();
+    setDrag(thumb);
+  }, []);
+
+  const onMouseMove = useCallback((e) => {
+    if (!drag) return;
+    const idx = posToIdx(e.clientX);
+    if (drag === "start" && idx <= safeEnd) setStartIdx(idx);
+    if (drag === "end"   && idx >= safeStart) setEndIdx(idx === n-1 ? null : idx);
+  }, [drag, safeStart, safeEnd, posToIdx, n]);
+
+  const onMouseUp = useCallback(() => setDrag(null), []);
+
+  // Touch support
+  const onTouchMove = useCallback((e) => {
+    if (!drag) return;
+    const idx = posToIdx(e.touches[0].clientX);
+    if (drag === "start" && idx <= safeEnd) setStartIdx(idx);
+    if (drag === "end"   && idx >= safeStart) setEndIdx(idx === n-1 ? null : idx);
+  }, [drag, safeStart, safeEnd, posToIdx, n]);
+
+  const startPct = safeStart / (n-1) * 100;
+  const endPct   = safeEnd   / (n-1) * 100;
+
+  return (
+    <div
+      style={{ position:"sticky", top:54, zIndex:199, background:darkMode?"#020817f0":"#f0f4faf8", backdropFilter:"blur(12px)", borderBottom:"1px solid "+C.border, padding:"10px 24px", display:"flex", alignItems:"center", gap:16, userSelect:"none" }}
+      onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+      onTouchMove={onTouchMove} onTouchEnd={onMouseUp}
+    >
+      <span style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:.8, whiteSpace:"nowrap", fontWeight:600 }}>Period</span>
+
+      {/* Track */}
+      <div ref={setRef} style={{ flex:1, position:"relative", height:20, display:"flex", alignItems:"center", cursor:"pointer" }}>
+        {/* bg track */}
+        <div style={{ position:"absolute", left:0, right:0, height:3, background:C.border, borderRadius:2 }}/>
+        {/* active fill */}
+        <div style={{ position:"absolute", left:startPct+"%", width:(endPct-startPct)+"%", height:3, background:C.accent, borderRadius:2 }}/>
+        {/* ticks */}
+        {allMonths.map((_,i) => (
+          <div key={i} style={{ position:"absolute", left:(i/(n-1)*100)+"%", transform:"translateX(-50%)", width:1, height:5, background:i>=safeStart&&i<=safeEnd?C.accent:C.border, top:"50%", marginTop:-2.5 }}/>
+        ))}
+        {/* start thumb */}
+        <div
+          onMouseDown={e=>onMouseDown(e,"start")}
+          onTouchStart={e=>{ e.preventDefault(); setDrag("start"); }}
+          style={{ position:"absolute", left:startPct+"%", transform:"translateX(-50%)", width:16, height:16, borderRadius:"50%", background:C.accent, border:"2px solid "+C.bg, cursor:"grab", zIndex:drag==="start"?10:2, boxShadow:drag==="start"?"0 0 0 4px #3b82f630":"none", transition:"box-shadow .1s", touchAction:"none" }}
+        />
+        {/* end thumb */}
+        <div
+          onMouseDown={e=>onMouseDown(e,"end")}
+          onTouchStart={e=>{ e.preventDefault(); setDrag("end"); }}
+          style={{ position:"absolute", left:endPct+"%", transform:"translateX(-50%)", width:16, height:16, borderRadius:"50%", background:C.accent, border:"2px solid "+C.bg, cursor:"grab", zIndex:drag==="end"?10:2, boxShadow:drag==="end"?"0 0 0 4px #3b82f630":"none", transition:"box-shadow .1s", touchAction:"none" }}
+        />
+      </div>
+
+      {/* Labels */}
+      <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+        <span style={{ fontSize:12, fontWeight:700, color:C.accent, fontFamily:"DM Mono,monospace", background:C.surface, border:"1px solid "+C.border, borderRadius:6, padding:"3px 8px" }}>{fmtM(allMonths[safeStart])}</span>
+        <span style={{ fontSize:10, color:C.muted }}>→</span>
+        <span style={{ fontSize:12, fontWeight:700, color:C.accent, fontFamily:"DM Mono,monospace", background:C.surface, border:"1px solid "+C.border, borderRadius:6, padding:"3px 8px" }}>{fmtM(allMonths[safeEnd])}</span>
+        {(safeStart!==0||safeEnd!==n-1) && (
+          <button onClick={()=>{ setStartIdx(0); setEndIdx(null); }}
+            style={{ fontSize:10, color:C.muted, background:"transparent", border:"1px solid "+C.border, borderRadius:6, padding:"3px 8px", cursor:"pointer", fontFamily:"inherit" }}>
+            All
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [muspData,   setMuspData]   = useState(null);
   const [psData,     setPsData]     = useState(null);
   const [launched,   setLaunched]   = useState(false);
-  const [mode,       setMode]       = useState("musp");     // "musp" | "ps" | "conv"
+  const [mode,       setMode]       = useState("musp");     // "musp" | "ps"
   const [view,       setView]       = useState("overview"); // "overview" | "doctors" | "recommendations"
   const [selIC,      setSelIC]      = useState("All");
   const [treatF,     setTreatF]     = useState("All");
-  const [periodN,    setPeriodN]    = useState(null);
+  const [startIdx,   setStartIdx]   = useState(0);
+  const [endIdx,     setEndIdx]     = useState(null); // null = last available month
   const [selDoc,     setSelDoc]     = useState(null);
   const [docSearch,  setDocSearch]  = useState("");
   const [statusTab,  setStatusTab]  = useState("all");
-  const [sizeBucket, setSizeBucket] = useState(0);
+  const [sizeBuckets, setSizeBuckets] = useState([]); // empty = All
   const [sortDir,    setSortDir]    = useState("asc");
+  const [sortKey,    setSortKey]    = useState("slope"); // "slope" | "total"
+  const [expandedTreatment, setExpandedTreatment] = useState(null);
+  const [darkMode,   setDarkMode]   = useState(true);
+
+  // Update global C before every render
+  C = darkMode ? DARK : LIGHT;
 
   const handleMUSP  = useCallback(f => { if(!f)return; const r=new FileReader(); r.onload=e=>setMuspData(processMUSP(parseCSV(e.target.result))); r.readAsText(f,"UTF-8"); },[]);
   const handlePS    = useCallback(f => { if(!f)return; const r=new FileReader(); r.onload=e=>setPsData(processPS(parseCSV(e.target.result))); r.readAsText(f,"UTF-8"); },[]);
-  const handleStart = useCallback(() => { if(muspData){setLaunched(true);setSelIC("All");setPeriodN(null);setSelDoc(null);} },[muspData]);
-  const handleReset = useCallback(() => { setMuspData(null);setPsData(null);setLaunched(false);setSelDoc(null);setMode("musp"); },[]);
+  const handleStart = useCallback(() => { if(muspData){setLaunched(true);setSelIC("All");setStartIdx(0);setEndIdx(null);setSelDoc(null);} },[muspData]);
+  const handleReset = useCallback(() => { setMuspData(null);setPsData(null);setLaunched(false);setSelDoc(null);setMode("musp");setStartIdx(0);setEndIdx(null); },[]);
 
   const hasPS = !!(psData && psData.length > 0);
 
-  // When PS is removed, fall back from conv mode
-  const effectiveMode = (mode==="conv"||mode==="ps") && !hasPS ? "musp" : mode;
+  // When PS is removed, fall back to musp
+  const effectiveMode = mode==="ps" && !hasPS ? "musp" : mode;
 
   const allMonths    = useMemo(()=>muspData?[...new Set(muspData.map(r=>r.date))].sort():[], [muspData]);
-  const activeMonths = useMemo(()=>{ const n=periodN||allMonths.length; return allMonths.slice(-n); }, [allMonths,periodN]);
   const ics          = useMemo(()=>muspData?[...new Set(muspData.map(r=>r.ic))].sort():[], [muspData]);
 
-  const periodOptions = useMemo(()=>{
-    if (!allMonths.length) return [];
-    const opts=allMonths.map((_,i)=>({value:i+1,label:i===0?"Last month":"Last "+(i+1)+" months"}));
-    opts[opts.length-1]={value:allMonths.length,label:"All "+allMonths.length+" months"};
-    return opts;
-  },[allMonths]);
+  const safeStart    = Math.min(startIdx, Math.max(0, allMonths.length-1));
+  const safeEnd      = endIdx===null ? allMonths.length-1 : Math.min(endIdx, allMonths.length-1);
+  const activeMonths = useMemo(()=>allMonths.slice(safeStart, safeEnd+1), [allMonths, safeStart, safeEnd]);
 
-  // Active dataset depends on mode
   const activeData = useMemo(()=>{
     const src = effectiveMode==="ps" ? psData : muspData;
     if (!src) return [];
@@ -728,21 +808,13 @@ export default function App() {
   },[muspData,activeMonths,selIC,treatF]);
 
   // Doctor stats
-  const doctorStats = useMemo(()=>{
-    if (effectiveMode==="conv") {
-      if (!psData) return [];
-      return buildConvStats(muspFiltered, psData.filter(r=>activeMonths.includes(r.date)&&(selIC==="All"||r.ic===selIC)&&(treatF==="All"||r.treatment===treatF)), activeMonths, sizeBucket, sortDir, true);
-    }
-    return buildDoctorStats(activeData, activeMonths, sizeBucket, sortDir, true);
-  },[effectiveMode,activeData,muspFiltered,psData,activeMonths,sizeBucket,sortDir,selIC,treatF]);
+  const doctorStats = useMemo(()=>
+    buildDoctorStats(activeData, activeMonths, sizeBuckets, sortDir, sortKey, true),
+    [activeData, activeMonths, sizeBuckets, sortDir, sortKey]);
 
-  const allDoctorStats = useMemo(()=>{
-    if (effectiveMode==="conv") {
-      if (!psData) return [];
-      return buildConvStats(muspFiltered, psData.filter(r=>activeMonths.includes(r.date)&&(selIC==="All"||r.ic===selIC)&&(treatF==="All"||r.treatment===treatF)), activeMonths, sizeBucket, sortDir, false);
-    }
-    return buildDoctorStats(activeData, activeMonths, sizeBucket, sortDir, false);
-  },[effectiveMode,activeData,muspFiltered,psData,activeMonths,sizeBucket,sortDir,selIC,treatF]);
+  const allDoctorStats = useMemo(()=>
+    buildDoctorStats(activeData, activeMonths, [], sortDir, sortKey, false),
+    [activeData, activeMonths, sortDir, sortKey]);
 
   // Full-history slopes (for divergence detection) — always on MUSP
   const fullSlopes = useMemo(()=>buildFullSlopes(
@@ -809,15 +881,23 @@ export default function App() {
     if (hasPS) {
       const psFilt=(psData||[]).filter(r=>r.date===m&&(selIC==="All"||r.ic===selIC)&&(treatF==="All"||r.treatment===treatF));
       obj["Pat. Start"]=psFilt.reduce((s,r)=>s+r.val,0);
-      const mu=obj["MUSP"];
-      obj["Conv %"]=mu>0?(obj["Pat. Start"]/mu*100):0;
+      TREATMENTS.forEach(t=>{ obj["ps_"+t]=psFilt.filter(r=>r.treatment===t).reduce((s,r)=>s+r.val,0); });
     }
     return obj;
   }),[muspFiltered,psData,hasPS,activeMonths,selIC,treatF]);
 
-  const recommendations = useMemo(()=>
-    buildRecs(allDoctorStats,icStats,activeMonths,allMonths,selIC,treatF,fullSlopes,effectiveMode),
-    [allDoctorStats,icStats,activeMonths,allMonths,selIC,treatF,fullSlopes,effectiveMode]);
+  // Treatments sorted by total volume descending — biggest first (bottom of stack)
+  const sortedTreatments = useMemo(()=>{
+    const totals={};
+    TREATMENTS.forEach(t=>{ totals[t]=timeline.reduce((s,row)=>s+(row[t]||0),0); });
+    return [...TREATMENTS].sort((a,b)=>totals[b]-totals[a]);
+  },[timeline]);
+
+  const sortedPsTreatments = useMemo(()=>{
+    const totals={};
+    TREATMENTS.forEach(t=>{ totals[t]=timeline.reduce((s,row)=>s+(row["ps_"+t]||0),0); });
+    return [...TREATMENTS].sort((a,b)=>totals[b]-totals[a]);
+  },[timeline]);
 
   const visibleDocs = useMemo(()=>doctorStats.filter(d=>{
     if (statusTab!=="all"&&d.status!==statusTab) return false;
@@ -826,7 +906,7 @@ export default function App() {
     return true;
   }),[doctorStats,docSearch,statusTab]);
 
-  if (!launched) return <UploadScreen onMUSP={handleMUSP} onPS={handlePS} muspLoaded={!!muspData} psLoaded={hasPS} canStart={!!muspData} onStart={handleStart}/>;
+  if (!launched) return <UploadScreen onMUSP={handleMUSP} onPS={handlePS} muspLoaded={!!muspData} psLoaded={hasPS} canStart={!!muspData} onStart={handleStart} darkMode={darkMode} setDarkMode={setDarkMode}/>;
 
   const modeInfo    = MODES[effectiveMode];
   const periodLabel = activeMonths.length>=2 ? fmtM(activeMonths[0])+" → "+fmtM(activeMonths[activeMonths.length-1]) : fmtM(activeMonths[0]);
@@ -835,6 +915,7 @@ export default function App() {
   const showPos     = effectiveMode==="musp" && periodDiv!==null && periodDiv>=2;
 
   // KPI strip content depends on mode
+  const psCol = C.green;
   const kpiItems = !kpis ? [] : effectiveMode==="musp" ? [
     { label:"Total MUSP",    value:fmtV(kpis.muspTotal),                   color:C.accent,       tip:"Total MUSP in the selected period." },
     { label:"Slope",         value:fmt(kpis.muspSlope)+"/mo", sub:kpis.fullSlope!==null?"Full history: "+fmt(kpis.fullSlope)+"/mo":undefined, color:sc(kpis.muspSlope), tip:"Linear regression slope on monthly MUSP." },
@@ -842,31 +923,24 @@ export default function App() {
     { label:"Growing",       value:kpis.growing,   color:C.green, sub:"slope >=+1/mo",  tip:"Doctors gaining >=1 MUSP/month." },
     { label:"Declining",     value:kpis.declining, color:C.red,   sub:"slope <=-1/mo",  tip:"Doctors losing >=1 MUSP/month." },
     { label:"Stable",        value:kpis.stable,    color:C.amber, sub:"-1 < slope < +1",tip:"Doctors roughly flat." },
-  ] : effectiveMode==="ps" ? [
-    { label:"Total PS",      value:fmtV(kpis.psTotal),    color:C.purple,  tip:"Total Patients Start in the selected period." },
-    { label:"PS Slope",      value:fmt(kpis.psSlope)+"/mo",               color:sc(kpis.psSlope||0), tip:"Linear regression slope on monthly PS." },
+  ] : [
+    { label:"Total PS",      value:fmtV(kpis.psTotal),    color:psCol,  tip:"Total Patients Start in the selected period." },
+    { label:"PS Slope",      value:fmt(kpis.psSlope)+"/mo", color:sc(kpis.psSlope||0), tip:"Linear regression slope on monthly PS." },
     { label:"Growing",       value:kpis.growing,   color:C.green, sub:"slope >=+1/mo",  tip:"Doctors with growing PS." },
     { label:"Declining",     value:kpis.declining, color:C.red,   sub:"slope <=-1/mo",  tip:"Doctors with declining PS." },
     { label:"Stable",        value:kpis.stable,    color:C.amber, sub:"-1 < slope < +1",tip:"Doctors with stable PS." },
-  ] : [
-    { label:"Conv Rate",     value:kpis.convRate!==null?kpis.convRate.toFixed(1)+"%":"–", color:cc(kpis.convRate), tip:"Total PS / Total MUSP in the period." },
-    { label:"Total MUSP",    value:fmtV(kpis.muspTotal),   color:C.accent,  tip:"Total MUSP." },
-    { label:"Total PS",      value:fmtV(kpis.psTotal),     color:C.purple,  tip:"Total Patients Start." },
-    { label:"Growing",       value:kpis.growing,   color:C.green, sub:"conv slope >=+1",  tip:"Doctors with improving conversion." },
-    { label:"Declining",     value:kpis.declining, color:C.red,   sub:"conv slope <=-1",  tip:"Doctors with declining conversion." },
-    { label:"Stable",        value:kpis.stable,    color:C.amber, sub:"-1 < slope < +1",  tip:"Doctors with stable conversion." },
   ];
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"DM Sans,sans-serif" }}>
-      <style>{css}</style>
+      <style>{makeCss(darkMode)}</style>
 
       {/* ── Header ── */}
-      <header style={{ position:"sticky", top:0, zIndex:200, background:"#020817f0", backdropFilter:"blur(12px)", borderBottom:"1px solid "+C.border, height:54, display:"flex", alignItems:"center", padding:"0 24px", gap:16 }}>
+      <header style={{ position:"sticky", top:0, zIndex:200, background:darkMode?"#020817f0":"#f0f4faf5", backdropFilter:"blur(12px)", borderBottom:"1px solid "+C.border, height:54, display:"flex", alignItems:"center", padding:"0 24px", gap:16 }}>
         <nav style={{ display:"flex", gap:2 }}>
-          {[["overview","Overview"],["doctors","Doctors"],["recommendations","Recs"+(recommendations.length?" ("+recommendations.length+")":"")]].map(([id,label])=>(
+          {[["overview","Overview"],["doctors","Doctors"]].map(([id,label])=>(
             <button key={id} onClick={()=>setView(id)}
-              style={{ background:view===id?"#1a2744":"transparent", color:view===id?C.text:C.muted, border:"none", borderRadius:7, padding:"5px 12px", cursor:"pointer", fontSize:12, fontWeight:500, fontFamily:"inherit", transition:"all .15s" }}>
+              style={{ background:view===id?C.border:"transparent", color:view===id?C.text:C.muted, border:"none", borderRadius:7, padding:"5px 12px", cursor:"pointer", fontSize:12, fontWeight:500, fontFamily:"inherit", transition:"all .15s" }}>
               {label}
             </button>
           ))}
@@ -874,14 +948,10 @@ export default function App() {
 
         {/* Mode switcher — center */}
         <div style={{ flex:1, display:"flex", justifyContent:"center" }}>
-          <ModeSwitch mode={effectiveMode} setMode={m=>{ setMode(m); setSelDoc(null); }} hasPS={hasPS}/>
+          <ModeSwitch mode={effectiveMode} setMode={m=>{ setMode(m); setSelDoc(null); }} hasPS={hasPS} darkMode={darkMode} setDarkMode={setDarkMode}/>
         </div>
 
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-          <select value={periodN||allMonths.length} onChange={e=>{const v=+e.target.value;setPeriodN(v===allMonths.length?null:v);}}
-            style={{ background:C.surface, border:"1px solid "+C.border, color:C.accent, borderRadius:8, padding:"5px 10px", fontSize:12, fontFamily:"inherit", cursor:"pointer", fontWeight:600 }}>
-            {periodOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
           <select value={selIC} onChange={e=>{setSelIC(e.target.value);setSelDoc(null);}}
             style={{ background:C.surface, border:"1px solid "+C.border, color:C.text, borderRadius:8, padding:"5px 10px", fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>
             <option value="All">All ICs</option>
@@ -895,6 +965,18 @@ export default function App() {
           <button onClick={handleReset} style={{ background:"transparent", border:"1px solid "+C.border, color:C.muted, borderRadius:8, padding:"5px 10px", fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>Reset</button>
         </div>
       </header>
+
+      {/* ── Period slider bar ── */}
+      {allMonths.length > 1 && (
+        <PeriodSlider
+          allMonths={allMonths}
+          safeStart={safeStart}
+          safeEnd={safeEnd}
+          setStartIdx={setStartIdx}
+          setEndIdx={setEndIdx}
+          darkMode={darkMode}
+        />
+      )}
 
       <main style={{ padding:"16px 24px 60px", maxWidth:1400, margin:"0 auto" }}>
 
@@ -920,7 +1002,7 @@ export default function App() {
           <span style={{ fontSize:11, color:C.accent, fontWeight:600, background:"#3b82f615", border:"1px solid #3b82f630", borderRadius:5, padding:"1px 8px" }}>{periodLabel}</span>
           {selIC!=="All"&&<span style={{ fontSize:11, color:C.amber, fontWeight:600, background:"#f59e0b15", border:"1px solid #f59e0b30", borderRadius:5, padding:"1px 8px" }}>{selIC}</span>}
           {treatF!=="All"&&<span style={{ fontSize:11, color:TC[treatF], fontWeight:600, background:TC[treatF]+"15", border:"1px solid "+TC[treatF]+"30", borderRadius:5, padding:"1px 8px" }}>{treatF}</span>}
-          {sizeBucket>0&&<span style={{ fontSize:11, color:C.amber, fontWeight:600, background:"#f59e0b15", border:"1px solid #f59e0b30", borderRadius:5, padding:"1px 8px" }}>{SIZE_BUCKETS[sizeBucket].label}</span>}
+          {view==="doctors" && sizeBuckets.length>0&&<span style={{ fontSize:11, color:C.amber, fontWeight:600, background:"#f59e0b15", border:"1px solid #f59e0b30", borderRadius:5, padding:"1px 8px" }}>{sizeBuckets.map(i=>SIZE_BUCKETS[i].label).join(", ")}</span>}
         </div>
 
         {/* KPI strip */}
@@ -941,55 +1023,95 @@ export default function App() {
         {/* ══ OVERVIEW ══ */}
         {view==="overview" && (
           <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
-            <div style={{ display:"grid", gridTemplateColumns:"3fr 2fr", gap:18 }}>
 
-              {/* Timeline chart */}
-              <div style={{ background:C.surface, border:"1px solid "+C.border, borderRadius:12, padding:22 }}>
-                <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:16, fontWeight:600 }}>
-                  {effectiveMode==="musp" && "MUSP by Treatment"}
-                  {effectiveMode==="ps"   && "Patients Start over Time"}
-                  {effectiveMode==="conv" && "Conversion Rate over Time"}
-                </div>
-                <ResponsiveContainer width="100%" height={220}>
-                  {effectiveMode==="conv" ? (
-                    <LineChart data={timeline} margin={{top:0,right:0,left:-10,bottom:0}}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                      <XAxis dataKey="month" tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false}/>
-                      <YAxis tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false} unit="%"/>
-                      <RT {...TT}/>
-                      <Legend wrapperStyle={{fontSize:11,paddingTop:8}}/>
-                      <Line type="monotone" dataKey="Conv %" stroke={C.green} strokeWidth={2.5} dot={{r:3,fill:C.green}}/>
-                    </LineChart>
-                  ) : effectiveMode==="ps" ? (
-                    <LineChart data={timeline} margin={{top:0,right:0,left:-10,bottom:0}}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                      <XAxis dataKey="month" tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false}/>
-                      <YAxis tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false}/>
-                      <RT {...TT}/>
-                      <Line type="monotone" dataKey="Pat. Start" stroke={C.purple} strokeWidth={2.5} dot={{r:3,fill:C.purple}}/>
-                    </LineChart>
-                  ) : (
-                    <AreaChart data={timeline} margin={{top:0,right:0,left:-10,bottom:0}}>
-                      <defs>
-                        {TREATMENTS.map(t=>(
-                          <linearGradient key={t} id={"g"+t.replace(/\W/g,"")} x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={TC[t]} stopOpacity={0.4}/>
-                            <stop offset="95%" stopColor={TC[t]} stopOpacity={0}/>
-                          </linearGradient>
-                        ))}
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                      <XAxis dataKey="month" tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false}/>
-                      <YAxis tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false}/>
-                      <RT {...TT}/>
-                      <Legend wrapperStyle={{fontSize:11,paddingTop:8}}/>
-                      {TREATMENTS.map(t=>(
-                        <Area key={t} type="monotone" dataKey={t} stackId="1" stroke={TC[t]} fill={"url(#g"+t.replace(/\W/g,"")+")"} strokeWidth={1.5}/>
-                      ))}
-                    </AreaChart>
-                  )}
-                </ResponsiveContainer>
+            {/* ── Small multiples — full width for MUSP and PS ── */}
+            <div style={{ background:C.surface, border:"1px solid "+C.border, borderRadius:12, padding:22 }}>
+              <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, marginBottom:16, fontWeight:600 }}>
+                {effectiveMode==="musp" ? "MUSP by Treatment" : "Patients Start by Treatment"}
               </div>
+
+              {effectiveMode==="musp" ? (
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
+                  {sortedTreatments.map(t => {
+                    const tData = timeline.map(row => ({ month: row.month, v: row[t]||0 }));
+                    const total = tData.reduce((s,r)=>s+r.v, 0);
+                    const slope = calcSlope(Object.fromEntries(tData.map((r,i)=>[i,r.v])), tData.map((_,i)=>i));
+                    return (
+                      <div key={t} onClick={()=>setExpandedTreatment({ t, isPS: false })}
+                        className="rh"
+                        style={{ background:darkMode?"#020817":C.bg, borderRadius:10, padding:"14px 14px 10px", border:"1px solid "+C.border, cursor:"pointer", transition:"border-color .15s", position:"relative" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
+                          <div style={{ width:8, height:8, borderRadius:2, background:TC[t], flexShrink:0 }}/>
+                          <span style={{ fontSize:10, color:C.muted, fontWeight:600 }}>{t}</span>
+                          <span style={{ marginLeft:"auto", fontSize:9, color:C.muted, opacity:.5 }}>↗</span>
+                        </div>
+                        <div style={{ fontSize:18, fontWeight:700, fontFamily:"DM Mono,monospace", color:TC[t], marginBottom:2 }}>{total.toLocaleString()}</div>
+                        <div style={{ fontSize:10, color:sc(slope), fontFamily:"DM Mono,monospace", marginBottom:10 }}>{fmt(slope,1)}/mo</div>
+                        <ResponsiveContainer width="100%" height={70}>
+                          <LineChart data={tData} margin={{top:4,right:2,left:-40,bottom:0}}>
+                            <YAxis domain={['auto','auto']} tick={false} axisLine={false} tickLine={false}/>
+                            <Line type="monotone" dataKey="v" stroke={TC[t]} strokeWidth={2} dot={false}/>
+                            <RT content={({ active, payload }) => {
+                              if (!active||!payload?.length) return null;
+                              return <div style={{ background:darkMode?"#0c1525":C.surface, border:"1px solid "+C.border, borderRadius:6, padding:"4px 8px", fontSize:11 }}>
+                                <span style={{ color:C.muted }}>{payload[0]?.payload?.month} </span>
+                                <span style={{ color:TC[t], fontFamily:"DM Mono,monospace", fontWeight:700 }}>{(payload[0]?.value||0).toLocaleString()}</span>
+                              </div>;
+                            }}/>
+                          </LineChart>
+                        </ResponsiveContainer>
+                        <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
+                          <span style={{ fontSize:8, color:C.muted }}>{tData[0]?.month}</span>
+                          <span style={{ fontSize:8, color:C.muted }}>{tData[tData.length-1]?.month}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* PS small multiples */
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
+                  {sortedPsTreatments.map(t => {
+                    const tData = timeline.map(row => ({ month: row.month, v: row["ps_"+t]||0 }));
+                    const total = tData.reduce((s,r)=>s+r.v, 0);
+                    const slope = calcSlope(Object.fromEntries(tData.map((r,i)=>[i,r.v])), tData.map((_,i)=>i));
+                    return (
+                      <div key={t} onClick={()=>setExpandedTreatment({ t, isPS: true })}
+                        className="rh"
+                        style={{ background:darkMode?"#020817":C.bg, borderRadius:10, padding:"14px 14px 10px", border:"1px solid "+C.border, cursor:"pointer", transition:"border-color .15s" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
+                          <div style={{ width:8, height:8, borderRadius:2, background:TC[t], flexShrink:0 }}/>
+                          <span style={{ fontSize:10, color:C.muted, fontWeight:600 }}>{t}</span>
+                          <span style={{ marginLeft:"auto", fontSize:9, color:C.muted, opacity:.5 }}>↗</span>
+                        </div>
+                        <div style={{ fontSize:18, fontWeight:700, fontFamily:"DM Mono,monospace", color:TC[t], marginBottom:2 }}>{total.toLocaleString()}</div>
+                        <div style={{ fontSize:10, color:sc(slope), fontFamily:"DM Mono,monospace", marginBottom:10 }}>{fmt(slope,1)}/mo</div>
+                        <ResponsiveContainer width="100%" height={70}>
+                          <LineChart data={tData} margin={{top:4,right:2,left:-40,bottom:0}}>
+                            <YAxis domain={['auto','auto']} tick={false} axisLine={false} tickLine={false}/>
+                            <Line type="monotone" dataKey="v" stroke={TC[t]} strokeWidth={2} dot={false}/>
+                            <RT content={({ active, payload }) => {
+                              if (!active||!payload?.length) return null;
+                              return <div style={{ background:darkMode?"#0c1525":C.surface, border:"1px solid "+C.border, borderRadius:6, padding:"4px 8px", fontSize:11 }}>
+                                <span style={{ color:C.muted }}>{payload[0]?.payload?.month} </span>
+                                <span style={{ color:TC[t], fontFamily:"DM Mono,monospace", fontWeight:700 }}>{(payload[0]?.value||0).toLocaleString()}</span>
+                              </div>;
+                            }}/>
+                          </LineChart>
+                        </ResponsiveContainer>
+                        <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
+                          <span style={{ fontSize:8, color:C.muted }}>{tData[0]?.month}</span>
+                          <span style={{ fontSize:8, color:C.muted }}>{tData[tData.length-1]?.month}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ── IC list + Top tables ── */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:18 }}>
 
               {/* IC list */}
               <div style={{ background:C.surface, border:"1px solid "+C.border, borderRadius:12, padding:22 }}>
@@ -997,7 +1119,7 @@ export default function App() {
                 <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                   {icStats.map(s=>(
                     <div key={s.ic} onClick={()=>setSelIC(selIC===s.ic?"All":s.ic)}
-                      style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:selIC===s.ic?"#1a2744":"#020817", borderRadius:8, cursor:"pointer", border:"1px solid "+(selIC===s.ic?C.accent:C.border), transition:"all .15s" }}>
+                      style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:selIC===s.ic?C.border:darkMode?"#020817":C.bg, borderRadius:8, cursor:"pointer", border:"1px solid "+(selIC===s.ic?C.accent:C.border), transition:"all .15s" }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.ic.split(" ").slice(0,2).join(" ")}</div>
                         <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{s.doctorCount} doctors</div>
@@ -1010,10 +1132,8 @@ export default function App() {
                   ))}
                 </div>
               </div>
-            </div>
 
-            {/* Top tables */}
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18 }}>
+              {/* Top Growing + Declining */}
               {[
                 { title:"Top Growing",  docs:[...allDoctorStats].filter(d=>d.status==="growing").sort((a,b)=>b.slope-a.slope).slice(0,8),  accent:C.green },
                 { title:"Declining",    docs:[...allDoctorStats].filter(d=>d.status==="declining").sort((a,b)=>a.slope-b.slope).slice(0,8), accent:C.red },
@@ -1035,9 +1155,6 @@ export default function App() {
                         </div>
                         <div style={{ textAlign:"right", flexShrink:0 }}>
                           <div style={{ fontSize:12, fontWeight:700, color:accent, fontFamily:"DM Mono,monospace" }}>{fmt(d.slope,1)}/mo</div>
-                          {effectiveMode==="conv" && d.convRate!==null && (
-                            <div style={{ fontSize:10, color:cc(d.convRate) }}>{d.convRate.toFixed(0)}% conv</div>
-                          )}
                         </div>
                       </div>
                     ))
@@ -1045,6 +1162,7 @@ export default function App() {
                 </div>
               ))}
             </div>
+
           </div>
         )}
 
@@ -1056,20 +1174,35 @@ export default function App() {
             <div style={{ width:300, flexShrink:0, background:C.surface, border:"1px solid "+C.border, borderRadius:12, display:"flex", flexDirection:"column", overflow:"hidden" }}>
               <div style={{ padding:12, borderBottom:"1px solid "+C.border, flexShrink:0, display:"flex", flexDirection:"column", gap:8 }}>
                 <input value={docSearch} onChange={e=>setDocSearch(e.target.value)} placeholder="Search doctor or IC..."
-                  style={{ width:"100%", background:"#020817", border:"1px solid "+C.border, color:C.text, borderRadius:7, padding:"6px 10px", fontSize:12, fontFamily:"inherit", outline:"none" }}/>
+                  style={{ width:"100%", background:C.bg, border:"1px solid "+C.border, color:C.text, borderRadius:7, padding:"6px 10px", fontSize:12, fontFamily:"inherit", outline:"none" }}/>
+                {/* Size filter — multi-select (index 0 = "All" is a special case: selecting it clears others) */}
                 <div style={{ display:"flex", gap:3, flexWrap:"wrap" }}>
-                  {SIZE_BUCKETS.map((b,i)=>(
-                    <button key={i} onClick={()=>setSizeBucket(i)}
-                      style={{ fontSize:10, padding:"3px 7px", borderRadius:5, border:"1px solid "+(sizeBucket===i?C.accent:C.border), background:sizeBucket===i?"#3b82f620":"transparent", color:sizeBucket===i?C.accent:C.muted, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap", transition:"all .15s" }}>
-                      {b.label}
+                  {SIZE_BUCKETS.map((b,i)=>{
+                    const isAll = i===0;
+                    const active = isAll ? sizeBuckets.length===0 : sizeBuckets.includes(i);
+                    return (
+                      <button key={i} onClick={()=>{
+                        if (isAll) { setSizeBuckets([]); return; }
+                        setSizeBuckets(prev => prev.includes(i) ? prev.filter(x=>x!==i) : [...prev, i]);
+                      }}
+                        style={{ fontSize:10, padding:"3px 7px", borderRadius:5, border:"1px solid "+(active?C.accent:C.border), background:active?"#3b82f620":"transparent", color:active?C.accent:C.muted, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap", transition:"all .15s" }}>
+                        {b.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display:"flex", gap:4, alignItems:"center", flexWrap:"wrap" }}>
+                  <span style={{ fontSize:10, color:C.muted }}>Sort:</span>
+                  {[["asc","Worst"],["desc","Best"]].map(([dir,label])=>(
+                    <button key={dir} onClick={()=>{ setSortDir(dir); setSortKey("slope"); }}
+                      style={{ fontSize:10, padding:"3px 8px", borderRadius:5, border:"1px solid "+(sortDir===dir&&sortKey==="slope"?C.accent:C.border), background:sortDir===dir&&sortKey==="slope"?"#3b82f620":"transparent", color:sortDir===dir&&sortKey==="slope"?C.accent:C.muted, cursor:"pointer", fontFamily:"inherit", transition:"all .15s" }}>
+                      {label}
                     </button>
                   ))}
-                </div>
-                <div style={{ display:"flex", gap:4, alignItems:"center" }}>
-                  <span style={{ fontSize:10, color:C.muted }}>Sort:</span>
-                  {[["asc","Worst first"],["desc","Best first"]].map(([dir,label])=>(
-                    <button key={dir} onClick={()=>setSortDir(dir)}
-                      style={{ fontSize:10, padding:"3px 8px", borderRadius:5, border:"1px solid "+(sortDir===dir?C.accent:C.border), background:sortDir===dir?"#3b82f620":"transparent", color:sortDir===dir?C.accent:C.muted, cursor:"pointer", fontFamily:"inherit", transition:"all .15s" }}>
+                  <span style={{ fontSize:10, color:C.border }}>|</span>
+                  {[["desc","Vol ↓"],["asc","Vol ↑"]].map(([dir,label])=>(
+                    <button key={"vol"+dir} onClick={()=>{ setSortDir(dir); setSortKey("total"); }}
+                      style={{ fontSize:10, padding:"3px 8px", borderRadius:5, border:"1px solid "+(sortKey==="total"&&sortDir===dir?C.green:C.border), background:sortKey==="total"&&sortDir===dir?"#10b98120":"transparent", color:sortKey==="total"&&sortDir===dir?C.green:C.muted, cursor:"pointer", fontFamily:"inherit", transition:"all .15s" }}>
                       {label}
                     </button>
                   ))}
@@ -1081,7 +1214,7 @@ export default function App() {
                   const cnt=key==="all"?doctorStats.length:doctorStats.filter(d=>d.status===key).length;
                   return (
                     <button key={key} onClick={()=>setStatusTab(key)}
-                      style={{ flex:1, background:statusTab===key?"#1a2744":"transparent", border:"none", borderBottom:"2px solid "+(statusTab===key?color:"transparent"), color, padding:"7px 2px", fontSize:10, cursor:"pointer", fontFamily:"inherit", transition:"all .15s" }}>
+                      style={{ flex:1, background:statusTab===key?C.border:"transparent", border:"none", borderBottom:"2px solid "+(statusTab===key?color:"transparent"), color, padding:"7px 2px", fontSize:10, cursor:"pointer", fontFamily:"inherit", transition:"all .15s" }}>
                       {label}<br/><span style={{ fontSize:13, fontFamily:"DM Mono,monospace", fontWeight:700 }}>{cnt}</span>
                     </button>
                   );
@@ -1121,41 +1254,75 @@ export default function App() {
           </div>
         )}
 
-        {/* ══ RECOMMENDATIONS ══ */}
-        {view==="recommendations" && (
-          <div style={{ maxWidth:820, display:"flex", flexDirection:"column", gap:10 }}>
-            <div style={{ fontSize:13, color:C.muted, marginBottom:6, lineHeight:1.7 }}>
-              {"Signals for "+modeInfo.label+" mode — slope, divergence, treatment trends."}
-              {" 1 signal per doctor max, sorted by impact."}
-              {periodN&&allMonths.length>activeMonths.length&&<span style={{ color:C.amber }}>{" Scoped to last "+activeMonths.length+" months."}</span>}
-            </div>
-            {recommendations.length===0 && (
-              <div style={{ background:C.surface, border:"1px solid "+C.border, borderRadius:12, padding:40, textAlign:"center", color:C.muted, fontSize:14 }}>
-                No significant signals for this configuration.
-              </div>
-            )}
-            {recommendations.map((r,i)=>{
-              const S={ warning:{bg:"#f59e0b12",border:"#f59e0b35",icon:"⚠️",color:C.amber}, alert:{bg:"#ef444412",border:"#ef444435",icon:"🔴",color:C.red}, success:{bg:"#10b98112",border:"#10b98135",icon:"✅",color:C.green} };
-              const s=S[r.type]||S.alert;
-              return (
-                <div key={i} style={{ background:s.bg, border:"1px solid "+s.border, borderRadius:10, padding:"14px 18px", display:"flex", gap:12, alignItems:"flex-start" }}>
-                  <div style={{ fontSize:16, flexShrink:0, marginTop:1 }}>{s.icon}</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:600, fontSize:13, color:s.color, marginBottom:3 }}>{r.title}</div>
-                    <div style={{ fontSize:12, color:C.muted, lineHeight:1.7 }}>{r.body}</div>
-                  </div>
-                  {r.doctor && (
-                    <button onClick={()=>{ setSelDoc(r.doctor); setStatusTab("all"); setDocSearch(""); setView("doctors"); }}
-                      style={{ background:"transparent", border:"1px solid "+s.border, color:s.color, borderRadius:6, padding:"4px 10px", fontSize:11, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap", flexShrink:0 }}>
-                      View
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </main>
+
+      {/* ── Footer ── */}
+      <footer style={{ borderTop:"1px solid "+C.border, padding:"12px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", background:C.bg }}>
+        <span style={{ fontSize:11, color:C.muted, fontFamily:"DM Mono,monospace" }}>v2.1.0</span>
+        <span style={{ fontSize:11, color:C.muted }}>Made with 🤙 by Antoine Heritier</span>
+      </footer>
+
+      {/* ── Treatment expand modal ── */}
+      {expandedTreatment && (() => {
+        const { t: treatName, isPS } = expandedTreatment;
+        const key = isPS ? "ps_"+treatName : treatName;
+        const lineColor = TC[treatName];
+        const tData = timeline.map(row => ({ month: row.month, v: row[key]||0 }));
+        const total = tData.reduce((s,r)=>s+r.v, 0);
+        const slope = calcSlope(Object.fromEntries(tData.map((r,i)=>[i,r.v])), tData.map((_,i)=>i));
+        return (
+          <div onClick={()=>setExpandedTreatment(null)}
+            style={{ position:"fixed", inset:0, zIndex:999, background:darkMode?"rgba(2,8,23,0.8)":"rgba(15,23,42,0.5)", backdropFilter:"blur(6px)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div onClick={e=>e.stopPropagation()}
+              style={{ background:C.surface, border:"1px solid "+lineColor+"60", borderRadius:16, padding:32, width:"min(760px,90vw)", boxShadow:"0 24px 80px #00000060" }}>
+              {/* Header */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24 }}>
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                    <div style={{ width:10, height:10, borderRadius:3, background:lineColor }}/>
+                    <span style={{ fontSize:11, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:.8 }}>{treatName}</span>
+                    {isPS && <span style={{ fontSize:9, color:TC[treatName], background:TC[treatName]+"15", border:"1px solid "+TC[treatName]+"30", borderRadius:4, padding:"1px 6px", fontWeight:600 }}>Patients Start</span>}
+                  </div>
+                  <div style={{ fontSize:28, fontWeight:700, fontFamily:"DM Mono,monospace", color:lineColor }}>{total.toLocaleString()}</div>
+                  <div style={{ fontSize:13, color:sc(slope), fontFamily:"DM Mono,monospace", marginTop:3 }}>{fmt(slope,1)} /mo · {activeMonths.length} months</div>
+                </div>
+                <button onClick={()=>setExpandedTreatment(null)}
+                  style={{ background:"transparent", border:"1px solid "+C.border, color:C.muted, borderRadius:8, padding:"6px 12px", fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>✕ Close</button>
+              </div>
+              {/* Full chart */}
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={tData} margin={{top:4,right:8,left:-10,bottom:0}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                  <XAxis dataKey="month" tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false}/>
+                  <YAxis tick={{fill:C.muted,fontSize:11}} axisLine={false} tickLine={false}/>
+                  <RT content={({ active, payload }) => {
+                    if (!active||!payload?.length) return null;
+                    return <div style={{ background:C.bg, border:"1px solid "+C.border, borderRadius:8, padding:"8px 12px", fontSize:12 }}>
+                      <div style={{ color:C.muted, marginBottom:2 }}>{payload[0]?.payload?.month}</div>
+                      <div style={{ color:lineColor, fontFamily:"DM Mono,monospace", fontWeight:700, fontSize:15 }}>{(payload[0]?.value||0).toLocaleString()}</div>
+                    </div>;
+                  }}/>
+                  <Line type="monotone" dataKey="v" stroke={lineColor} strokeWidth={2.5} dot={{ r:4, fill:lineColor, strokeWidth:0 }} activeDot={{ r:6, fill:lineColor }}/>
+                </LineChart>
+              </ResponsiveContainer>
+              {/* Monthly values */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))", gap:8, marginTop:20 }}>
+                {tData.map((row, i) => {
+                  const prev = i>0 ? tData[i-1].v : null;
+                  const mom  = prev!==null && prev>0 ? ((row.v-prev)/prev*100) : null;
+                  return (
+                    <div key={row.month} style={{ background:C.bg, borderRadius:8, padding:"8px 10px", border:"1px solid "+C.border }}>
+                      <div style={{ fontSize:9, color:C.muted, marginBottom:3 }}>{row.month}</div>
+                      <div style={{ fontSize:13, fontWeight:700, fontFamily:"DM Mono,monospace", color:lineColor }}>{row.v.toLocaleString()}</div>
+                      {mom!==null && <div style={{ fontSize:9, color:mom>=0?C.green:C.red, marginTop:1 }}>{mom>0?"+":""}{mom.toFixed(0)}%</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
