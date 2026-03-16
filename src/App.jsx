@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
+import { Moon, Sun } from "lucide-react";
 import {
   LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip as RT, Legend, ResponsiveContainer
@@ -289,6 +290,53 @@ const SparkLine = ({ vals, color }) => {
   );
 };
 
+// ─── Theme Toggle pill ────────────────────────────────────────────────────────
+const ThemeToggle = ({ darkMode, setDarkMode }) => (
+  <div
+    onClick={() => setDarkMode(!darkMode)}
+    role="button" tabIndex={0}
+    onKeyDown={e => e.key === "Enter" && setDarkMode(!darkMode)}
+    style={{
+      display:"flex", alignItems:"center", justifyContent:"space-between",
+      width:56, height:28, padding:"0 3px",
+      borderRadius:999, cursor:"pointer",
+      background: darkMode ? "#09090b" : "#ffffff",
+      border: "1px solid " + (darkMode ? "#27272a" : "#e4e4e7"),
+      transition:"background .3s, border-color .3s",
+      flexShrink:0,
+    }}
+  >
+    {/* Left pill — active in dark mode */}
+    <div style={{
+      display:"flex", alignItems:"center", justifyContent:"center",
+      width:22, height:22, borderRadius:"50%",
+      background: darkMode ? "#3f3f46" : "transparent",
+      transform: darkMode ? "translateX(0)" : "translateX(28px)",
+      transition:"transform .3s, background .3s",
+      flexShrink:0,
+    }}>
+      {darkMode
+        ? <Moon size={13} strokeWidth={1.5} color="#ffffff"/>
+        : <Sun  size={13} strokeWidth={1.5} color="#6b7280"/>
+      }
+    </div>
+    {/* Right pill — active in light mode */}
+    <div style={{
+      display:"flex", alignItems:"center", justifyContent:"center",
+      width:22, height:22, borderRadius:"50%",
+      background: darkMode ? "transparent" : "#e4e4e7",
+      transform: darkMode ? "translateX(0)" : "translateX(-28px)",
+      transition:"transform .3s, background .3s",
+      flexShrink:0,
+    }}>
+      {darkMode
+        ? <Sun  size={13} strokeWidth={1.5} color="#71717a"/>
+        : <Moon size={13} strokeWidth={1.5} color="#111111"/>
+      }
+    </div>
+  </div>
+);
+
 const ModeSwitch = ({ mode, setMode, hasPS, darkMode, setDarkMode }) => (
   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
     <div style={{ display:"flex", background:C.surface, border:"1px solid "+C.border, borderRadius:10, padding:3, gap:2 }}>
@@ -299,11 +347,7 @@ const ModeSwitch = ({ mode, setMode, hasPS, darkMode, setDarkMode }) => (
         </button>
       ))}
     </div>
-    <button onClick={()=>setDarkMode(!darkMode)}
-      title={darkMode?"Switch to light mode":"Switch to dark mode"}
-      style={{ background:C.surface, border:"1px solid "+C.border, borderRadius:8, padding:"5px 9px", cursor:"pointer", fontSize:14, lineHeight:1, transition:"all .15s" }}>
-      {darkMode ? "☀️" : "🌙"}
-    </button>
+    <ThemeToggle darkMode={darkMode} setDarkMode={setDarkMode}/>
   </div>
 );
 
@@ -636,10 +680,9 @@ function UploadScreen({ onMUSP, onPS, muspLoaded, psLoaded, canStart, onStart, d
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"DM Sans,sans-serif", color:C.text }}>
       <style>{makeCss(darkMode)}</style>
       {/* Dark/light toggle top-right */}
-      <button onClick={()=>setDarkMode(!darkMode)}
-        style={{ position:"fixed", top:16, right:20, background:C.surface, border:"1px solid "+C.border, borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:16, lineHeight:1 }}>
-        {darkMode ? "☀️" : "🌙"}
-      </button>
+      <div style={{ position:"fixed", top:16, right:20 }}>
+        <ThemeToggle darkMode={darkMode} setDarkMode={setDarkMode}/>
+      </div>
       <div style={{ textAlign:"center", marginBottom:40 }}>
         <div style={{ fontSize:10, letterSpacing:4, color:C.accent, textTransform:"uppercase", marginBottom:14, fontWeight:600 }}>Performance Dashboard</div>
         <h1 style={{ fontSize:36, fontWeight:700, letterSpacing:-1.5, lineHeight:1.15 }}>
