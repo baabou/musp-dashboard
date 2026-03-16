@@ -1,16 +1,23 @@
-# React + Vite
+# MUSP + Patients Start Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Performance analytics dashboard for MUSP (Monthly Unique Scanned Patients) and Patients Start data.
 
-Currently, two official plugins are available:
+## Features
+- Monthly trend charts with small multiples per treatment
+- Doctor-level drill-down with local treatment filter
+- IC performance overview
+- Dark / light theme toggle
+- Period slider for custom date ranges
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Stack
+React · Recharts · Vite · GitHub Pages
 
-## React Compiler
+## Live
+https://baabou.github.io/musp-dashboard/
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Versions
+| Version | Description |
+|---|---|
+| v2.2.0 | Theme toggle pill |
+| v2.1.0 | SparkLine fix, local treatment filter, size bucket isolated |
+| v2.0.0 | Multi-select size filter, volume sort, recommendations removed |
