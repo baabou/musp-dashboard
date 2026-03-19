@@ -30,7 +30,7 @@ function parseCSV(text) {
 
 function processMUSP(rows) {
   return rows.flatMap(r => {
-    const ic        = (r["ISP (Cluster information from SFDC)"] || "").trim();
+    const ic        = (r["ISP (Cluster information from SFDC)"] || r["AE (Cluster information from SFDC)"] || "").trim();
     const doctor    = (r["Doctor's Name"] || "").trim().replace(/^'+/, "");
     const date      = (r[""] || "").trim().slice(0, 7);
     const treatment = (r["By Treatment"] || "").trim();
@@ -41,7 +41,7 @@ function processMUSP(rows) {
 
 function processPS(rows) {
   return rows.flatMap(r => {
-    const ic        = (r["ISP (Cluster information from SFDC)"] || "").trim();
+    const ic        = (r["ISP (Cluster information from SFDC)"] || r["AE (Cluster information from SFDC)"] || "").trim();
     const doctor    = (r["Doctor's Name"] || "").trim().replace(/^'+/, "");
     const date      = (r[""] || "").trim().slice(0, 7);
     const treatment = (r["By Treatment"] || "").trim();
